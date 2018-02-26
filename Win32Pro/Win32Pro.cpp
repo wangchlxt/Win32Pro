@@ -4,6 +4,16 @@
 #include "stdafx.h"
 #include "Win32Pro.h"
 
+#include <stdio.h>
+#include <process.h>
+#include <atlstr.h>
+
+/* Windows socket头文件 */
+#include <Winsock2.h>
+
+/* 网络API的动态链接库 */
+#pragma comment (lib, "ws2_32.lib")
+
 #define MAX_LOADSTRING 100
 
 // 全局变量: 
@@ -16,6 +26,60 @@ ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
+
+UINT __stdcall UdpSvrThread(LPVOID lpParam)
+{
+	SOCKET uiFdSocket;
+	WSADATA wsaData;
+	char szbuffer[1024] = { 0 };
+
+	struct sockaddr_in stServerAddr;
+	struct sockaddr_in stClientAddr;
+
+	int iAddrlen = sizeof(sockaddr_in);
+
+	/* 调用Windows Sockets DLL,成功后才能使用socket系列函数 */
+	if (0 != WSAStartup(MAKEWORD(2, 1), &wsaData))
+	{
+		printf("Winsock init failed!\r\n");
+		WSACleanup();
+		return -1;
+	}
+
+	memset(&stServerAddr, 0, sizeof(stServerAddr));
+	memset(&stClientAddr, 0, sizeof(stClientAddr));
+
+	/* 服务器地址 */
+	stServerAddr.sin_family = AF_INET;
+
+	/* 监听端口 */
+	stServerAddr.sin_port = htons(6000);
+
+	stServerAddr.sin_addr.s_addr = INADDR_ANY;
+
+	/* 服务器端创建socket, 报文模式(UDP)*/
+	uiFdSocket = socket(AF_INET, SOCK_DGRAM, 0);
+
+	/* 绑定端口号 */
+	bind(uiFdSocket, (struct sockaddr*)&stServerAddr, sizeof(sockaddr_in));
+
+	while (true)
+	{
+		//printf("waiting client send msg now...\r\n");
+
+		if (SOCKET_ERROR != recvfrom(uiFdSocket, szbuffer, sizeof(szbuffer), 0, (struct  sockaddr*)&stClientAddr, &iAddrlen))
+		{
+			//printf("Received datagram from %s--%s\n", inet_ntoa(stClientAddr.sin_addr), szbuffer);
+			//char* pszIp = inet_ntoa(stClientAddr.sin_addr);
+
+			sendto(uiFdSocket, szbuffer, sizeof(szbuffer), 0, (struct sockaddr*)&stClientAddr, iAddrlen);
+		}
+	}
+
+	closesocket(uiFdSocket);
+
+	return 0;
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -41,6 +105,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_WIN32PRO));
 
     MSG msg;
+
+	UINT tid = 0;
+	_beginthreadex(NULL, 0, UdpSvrThread, NULL, 0, &tid);
 
     // 主消息循环: 
     while (GetMessage(&msg, nullptr, 0, 0))
